@@ -8,7 +8,7 @@ from telegram.ext import ApplicationBuilder, CommandHandler, CallbackQueryHandle
 # ✅ توكن البوت
 BOT_TOKEN = "7481829667:AAFm2BA6GQA79RVDtbCh9YrLcRUsyJKCHCQ"
 
-# ✅ رابط الإعلان الخاص بك
+# ✅ رابط الإعلان
 AD_LINK = "https://shrinkme.ink/ADSboot"
 
 # ✅ رابط الدفع بايبال
@@ -17,12 +17,13 @@ PAYPAL_LINK = "https://www.paypal.me/achrafkadi/7"
 # ✅ بريد خدمة العملاء
 SUPPORT_EMAIL = "achraf.kadi2003@gmail.com"
 
-# ✅ مفتاح Hugging Face سيتم قراءته من Environment Variable
+# ✅ مفتاح Hugging Face (من المتغير البيئي)
 HF_TOKEN = os.getenv("HF_TOKEN")
 
 # ✅ روابط النماذج
 STABLE_DIFFUSION_URL = "https://api-inference.huggingface.co/models/stabilityai/stable-diffusion-2"
 ANIME_DIFFUSION_URL = "https://api-inference.huggingface.co/models/hakurei/waifu-diffusion"
+TEXT_MODEL_URL = "https://api-inference.huggingface.co/models/mistralai/Mistral-7B-Instruct-v0.2"
 
 # ✅ تخزين بيانات المستخدمين
 user_data = {}
@@ -34,7 +35,7 @@ FREE_QUESTIONS = 20
 
 logging.basicConfig(level=logging.INFO)
 
-# ✅ طلب صورة من Hugging Face
+# ✅ توليد صورة
 def generate_image_from_hf(prompt, anime=False):
     headers = {"Authorization": f"Bearer {HF_TOKEN}"}
     url = ANIME_DIFFUSION_URL if anime else STABLE_DIFFUSION_URL
@@ -43,6 +44,20 @@ def generate_image_from_hf(prompt, anime=False):
         return BytesIO(response.content)
     else:
         return None
+
+# ✅ توليد إجابة نصية
+def generate_text_response(prompt):
+    headers = {"Authorization": f"Bearer {HF_TOKEN}"}
+    payload = {
+        "inputs": f"أجب عن هذا السؤال بشكل واضح:\n{prompt}",
+        "parameters": {"max_new_tokens": 200}
+    }
+    response = requests.post(TEXT_MODEL_URL, headers=headers, json=payload)
+    if response.status_code == 200:
+        result = response.json()
+        if isinstance(result, list) and "generated_text" in result[0]:
+            return result[0]["generated_text"]
+    return "❌ حدث خطأ أثناء معالجة الإجابة."
 
 # ✅ بدء البوت
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -60,7 +75,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "اكتب:\n"
         "- (صورة + وصفك) لإنشاء صورة\n"
         "- (أنمي + وصفك) لتحويل لأنمي\n"
-        "- أو أي سؤال تريده للإجابة"
+        "- أو أي سؤال تريده للإجابة عليه"
     )
 
 def has_balance(user_id):
@@ -86,8 +101,7 @@ async def send_payment_or_ads(update: Update, context: ContextTypes.DEFAULT_TYPE
     reply_markup = InlineKeyboardMarkup(keyboard)
     await update.message.reply_text(
         "⚠️ انتهى رصيدك!\n\n"
-        "يمكنك:\n"
-        "✅ الدفع 7$ لشهرين بدون حدود\n"
+        "✅ يمكنك الدفع 7$ لشهرين بدون حدود\n"
         "✅ أو مشاهدة إعلان لتجديد رصيدك مجانًا\n"
         "✅ أو التواصل مع خدمة العملاء",
         reply_markup=reply_markup
@@ -95,14 +109,15 @@ async def send_payment_or_ads(update: Update, context: ContextTypes.DEFAULT_TYPE
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
-    text = update.message.text.lower()
+    text = update.message.text.strip()
+    lower_text = text.lower()
     
     if not has_balance(user_id):
         await send_payment_or_ads(update, context)
         return
     
     # ✅ طلب صورة عادية
-    if text.startswith("صورة") or text.startswith("ارسم"):
+    if lower_text.startswith("صورة") or lower_text.startswith("ارسم"):
         if reduce_balance(user_id, "images"):
             prompt = text.replace("صورة", "").replace("ارسم", "").strip()
             await update.message.reply_text("⏳ جاري إنشاء الصورة، يرجى الانتظار...")
@@ -115,7 +130,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await send_payment_or_ads(update, context)
     
     # ✅ طلب أنمي
-    elif text.startswith("انمي") or text.startswith("حوّل"):
+    elif lower_text.startswith("انمي") or lower_text.startswith("حوّل"):
         if reduce_balance(user_id, "anime"):
             prompt = text.replace("انمي", "").replace("حوّل", "").strip()
             await update.message.reply_text("⏳ جاري تحويل الصورة إلى أسلوب أنمي...")
@@ -127,10 +142,12 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             await send_payment_or_ads(update, context)
     
-    # ✅ سؤال نصي
+    # ✅ سؤال نصي → يجيب من النموذج
     else:
         if reduce_balance(user_id, "questions"):
-            await update.message.reply_text("✅ هذا رد تجريبي على سؤالك.")
+            await update.message.reply_text("⏳ جاري التفكير والإجابة...")
+            reply_text = generate_text_response(text)
+            await update.message.reply_text(reply_text)
         else:
             await send_payment_or_ads(update, context)
 
@@ -167,4 +184,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-                              
